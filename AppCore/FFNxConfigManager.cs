@@ -128,7 +128,7 @@ namespace Iros.Workshop.ConfigSettings
 
         public bool HasKey(string key)
         {
-            return _toml.ContainsKey(key);
+            return _toml != null && _toml.ContainsKey(key);
         }
 
         public void Save()
@@ -253,6 +253,13 @@ namespace Iros.Workshop.ConfigSettings
             _toml["direct_mode_path"] = "direct";
             _toml["override_path"] = "override";
             _toml["trace_all"] = debug;
+
+            string selectedLanguage = AppCore.GameLanguage.Normalize(Sys.Settings.GameLaunchSettings.SelectedGameLanguage);
+            bool isJapaneseLanguage = selectedLanguage == AppCore.GameLanguage.Japanese;
+            _toml["game_language"] = AppCore.GameLanguage.GetFFNxLanguageId(selectedLanguage);
+
+            bool userConfiguredFieldAutosize = _toml.ContainsKey("ff7_field_autosize_text_box") && _toml["ff7_field_autosize_text_box"] is bool currentFieldAutosize && currentFieldAutosize;
+            _toml["ff7_field_autosize_text_box"] = isJapaneseLanguage || userConfiguredFieldAutosize;
         }
 
         public void ResetTo7thHeavenDefaults()

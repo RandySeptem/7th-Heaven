@@ -48,9 +48,11 @@ namespace AppUI.ViewModels
         private string _selectedSoundDevice;
         private string _selectedMidiData;
         private string _selectedMidiDevice;
+        private string _selectedGameLanguage;
         private int _musicVolumeValue;
 
         private WaveOut _audioTest;
+        private VorbisSampleProvider _audioTestReader;
 
         private ObservableCollection<ProgramToRunViewModel> _programList;
         private string _newProgramPathText;
@@ -64,6 +66,14 @@ namespace AppUI.ViewModels
         private int _voiceVolumeValue;
         private int _ambientVolumeValue;
         private int _movieVolumeValue;
+        private readonly List<KeyValuePair<string, string>> _gameLanguageOptions = new List<KeyValuePair<string, string>>()
+        {
+            new KeyValuePair<string, string>(GameLanguage.English, ResourceHelper.Get(StringKey.GameLanguageEnglish)),
+            new KeyValuePair<string, string>(GameLanguage.French, ResourceHelper.Get(StringKey.GameLanguageFrench)),
+            new KeyValuePair<string, string>(GameLanguage.German, ResourceHelper.Get(StringKey.GameLanguageGerman)),
+            new KeyValuePair<string, string>(GameLanguage.Spanish, ResourceHelper.Get(StringKey.GameLanguageSpanish)),
+            new KeyValuePair<string, string>(GameLanguage.Japanese, ResourceHelper.Get(StringKey.GameLanguageJapanese)),
+        };
 
         #endregion
 
@@ -219,6 +229,44 @@ namespace AppUI.ViewModels
         }
 
         public Dictionary<string, string> MidiDataFormats { get; set; }
+
+        public string SelectedGameLanguage
+        {
+            get
+            {
+                return _selectedGameLanguage;
+            }
+            set
+            {
+                _selectedGameLanguage = GameLanguage.Normalize(value);
+                NotifyPropertyChanged();
+                NotifyPropertyChanged(nameof(SelectedGameLanguageOption));
+            }
+        }
+
+        public KeyValuePair<string, string> SelectedGameLanguageOption
+        {
+            get
+            {
+                return GameLanguageOptions.FirstOrDefault(option => option.Key == SelectedGameLanguage);
+            }
+        }
+
+        public List<KeyValuePair<string, string>> GameLanguageOptions
+        {
+            get
+            {
+                return _gameLanguageOptions;
+            }
+        }
+
+        public Visibility GameLanguageSelectorVisibility
+        {
+            get
+            {
+                return GameLauncher.IsLanguageSelectorSupportedEdition() ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
 
         public int MusicVolumeValue
         {
@@ -483,6 +531,15 @@ namespace AppUI.ViewModels
                                               .Select(s => s.Key)
                                               .FirstOrDefault();
 
+            bool gameLanguageIsAutomatic = Sys.Settings.FF7InstalledVersion != FF7Version.Original98
+                                           && Sys.FFNxConfig.HasKey("game_language")
+                                           && Sys.FFNxConfig.Get("game_language") == "0";
+            SelectedGameLanguage = !GameLauncher.IsLanguageSelectorSupportedEdition()
+                                   || string.IsNullOrWhiteSpace(launchSettings.SelectedGameLanguage)
+                                   || gameLanguageIsAutomatic
+                ? GameLanguage.English
+                : launchSettings.SelectedGameLanguage;
+
             GetVolumesFromRegistry();
 
             SetSelectedMidiDeviceFromSettings();
@@ -634,6 +691,7 @@ namespace AppUI.ViewModels
 
                 Sys.Settings.GameLaunchSettings.SelectedSoundDevice = SoundDeviceGuids[SelectedSoundDevice];
                 Sys.Settings.GameLaunchSettings.SelectedMidiData = MidiDataFormats[SelectedMidiData];
+                Sys.Settings.GameLaunchSettings.SelectedGameLanguage = SelectedGameLanguage;
                 Sys.Settings.GameLaunchSettings.ReverseSpeakers = IsReverseSpeakersChecked;
                 Sys.Settings.GameLaunchSettings.LogarithmicVolumeControl = IsLogVolumeChecked;
 
@@ -742,8 +800,8 @@ namespace AppUI.ViewModels
 
                 // input 0 - audio test .ogg
                 // input 1 - silenced wave provider to play silent audio
-                NAudio.Vorbis.VorbisWaveReader waveReader = new NAudio.Vorbis.VorbisWaveReader(pathToTestFile);
-                MultiplexingWaveProvider waveProvider = new MultiplexingWaveProvider(new List<IWaveProvider>() { waveReader, new SilenceWaveProvider(waveReader.WaveFormat) }, 2);
+                _audioTestReader = new VorbisSampleProvider(pathToTestFile);
+                NAudio.Wave.SampleProviders.MultiplexingSampleProvider waveProvider = new NAudio.Wave.SampleProviders.MultiplexingSampleProvider(new List<ISampleProvider>() { _audioTestReader, new SilenceProvider(_audioTestReader.WaveFormat).ToSampleProvider() }, 2);
 
                 int leftChannel = 0;
                 int rightChannel = 1;
@@ -835,10 +893,16 @@ namespace AppUI.ViewModels
                 _audioTest.Stop();
                 _audioTest.PlaybackStopped -= AudioTest_PlaybackStopped;
                 _audioTest = null;
-
-                NotifyPropertyChanged(nameof(IsAudioPlaying));
-                NotifyPropertyChanged(nameof(IsAudioNotPlaying));
             }
+
+            if (_audioTestReader != null)
+            {
+                _audioTestReader.Dispose();
+                _audioTestReader = null;
+            }
+
+            NotifyPropertyChanged(nameof(IsAudioPlaying));
+            NotifyPropertyChanged(nameof(IsAudioNotPlaying));
         }
 
         internal void EditSelectedProgram(ProgramToRunViewModel selected)

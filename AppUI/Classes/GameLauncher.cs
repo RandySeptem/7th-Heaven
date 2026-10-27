@@ -81,6 +81,47 @@ namespace AppUI.Classes
 
         private static Process ff7Proc;
 
+        internal static bool IsLanguageSelectorSupportedEdition()
+        {
+            switch (Sys.Settings.FF7InstalledVersion)
+            {
+                case FF7Version.SteamReRelease:
+                case FF7Version.WindowsStore:
+                case FF7Version.GOG:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        internal static string GetSelectedGameLanguage()
+        {
+            return IsLanguageSelectorSupportedEdition()
+                ? GameLanguage.Normalize(Sys.Settings.GameLaunchSettings?.SelectedGameLanguage)
+                : GameLanguage.English;
+        }
+
+        internal static string GetLaunchExecutablePath()
+        {
+            string defaultExePath = Sys.Settings.FF7Exe;
+
+            if (!IsLanguageSelectorSupportedEdition())
+            {
+                return defaultExePath;
+            }
+
+            string selectedLanguage = GetSelectedGameLanguage();
+            string executableName = selectedLanguage == GameLanguage.Japanese ? "ff7_ja.exe" : "ff7_en.exe";
+
+            string ff7Folder = Path.GetDirectoryName(defaultExePath);
+            if (string.IsNullOrWhiteSpace(ff7Folder))
+            {
+                return defaultExePath;
+            }
+
+            return Path.Combine(ff7Folder, executableName);
+        }
+
         public static async Task<bool> LaunchGame(bool varDump, bool debug, bool launchWithNoMods = false)
         {
             bool runAsVanilla = false, didDisableReunion = false;
@@ -165,14 +206,15 @@ namespace AppUI.Classes
 
                     if (!ForceKillFF7())
                     {
-                        Instance.RaiseProgressChanged($"\t{ResourceHelper.Get(StringKey.FailedToCloseProcess)} {Path.GetFileName(Sys.Settings.FF7Exe)}. {ResourceHelper.Get(StringKey.Aborting)}", NLog.LogLevel.Error);
+                        Instance.RaiseProgressChanged($"\t{ResourceHelper.Get(StringKey.FailedToCloseProcess)} {Path.GetFileName(GetLaunchExecutablePath())}. {ResourceHelper.Get(StringKey.Aborting)}", NLog.LogLevel.Error);
                         return false;
                     }
                 }
             }
 
-            Instance.RaiseProgressChanged($"{ResourceHelper.Get(StringKey.CheckingFf7ExeExistsAt)} {Sys.Settings.FF7Exe} ...");
-            if (!File.Exists(Sys.Settings.FF7Exe))
+            string launchExecutablePath = GetLaunchExecutablePath();
+            Instance.RaiseProgressChanged($"{ResourceHelper.Get(StringKey.CheckingFf7ExeExistsAt)} {launchExecutablePath} ...");
+            if (!File.Exists(launchExecutablePath))
             {
                 Instance.RaiseProgressChanged($"\t{ResourceHelper.Get(StringKey.FileNotFoundAborting)}", NLog.LogLevel.Error);
                 Instance.RaiseProgressChanged(ResourceHelper.Get(StringKey.Ff7ExeNotFoundYouMayNeedToConfigure));
@@ -286,12 +328,12 @@ namespace AppUI.Classes
 
             // Auto-patch for 4GB support
             Instance.RaiseProgressChanged(ResourceHelper.Get(StringKey.App4GBPatchRequired));
-            PEFile file = PEFile.FromFile(Sys.Settings.FF7Exe);
+            PEFile file = PEFile.FromFile(GetLaunchExecutablePath());
             if (!file.FileHeader.Characteristics.HasFlag(Characteristics.LargeAddressAware))
             {
                 converter.BackupExe(backupFolderPath);
                 file.FileHeader.Characteristics |= Characteristics.LargeAddressAware;
-                file.Write(Sys.Settings.FF7Exe);
+                file.Write(GetLaunchExecutablePath());
                 Instance.RaiseProgressChanged(ResourceHelper.Get(StringKey.App4GBPatchApplied));
             }
 
@@ -436,6 +478,7 @@ namespace AppUI.Classes
                         }
                     }
                 }
+
                 Sys.FFNxConfig.Save();
 
                 // Refresh runtime profile using new FFNx flags from mods
@@ -640,7 +683,7 @@ namespace AppUI.Classes
                         Instance.StopAllSideProcessesForMods();
 
                         // ensure Reunion is re-enabled when ff7 process exits in case it failed above for any reason
-                        if (File.Exists(Path.Combine(Path.GetDirectoryName(Sys.Settings.FF7Exe), "Reunion.dll.bak")))
+                        if (File.Exists(Path.Combine(Path.GetDirectoryName(GetLaunchExecutablePath()), "Reunion.dll.bak")))
                         {
                             EnableOrDisableReunionMod(doEnable: true);
                         }
@@ -846,12 +889,14 @@ namespace AppUI.Classes
         /// </summary>
         internal static async Task<bool> LaunchFF7Exe()
         {
+            string launchExecutablePath = GetLaunchExecutablePath();
+
             try
             {
                 // Start game directly
-                ProcessStartInfo startInfo = new ProcessStartInfo(Sys.Settings.FF7Exe)
+                ProcessStartInfo startInfo = new ProcessStartInfo(launchExecutablePath)
                 {
-                    WorkingDirectory = Path.GetDirectoryName(Sys.Settings.FF7Exe),
+                    WorkingDirectory = Path.GetDirectoryName(launchExecutablePath),
                     UseShellExecute = true,
                 };
                 ff7Proc = Process.Start(startInfo);
@@ -868,7 +913,7 @@ namespace AppUI.Classes
                         }
 
                         // ensure Reunion is re-enabled when ff7 process exits in case it failed above for any reason
-                        if (File.Exists(Path.Combine(Path.GetDirectoryName(Sys.Settings.FF7Exe), "Reunion.dll.bak")))
+                        if (File.Exists(Path.Combine(Path.GetDirectoryName(launchExecutablePath), "Reunion.dll.bak")))
                         {
                             EnableOrDisableReunionMod(doEnable: true);
                         }
@@ -887,7 +932,7 @@ namespace AppUI.Classes
             }
             catch (Exception ex)
             {
-                Instance.RaiseProgressChanged($"{ResourceHelper.Get(StringKey.AnExceptionOccurredTryingToStartFf7At)} {Sys.Settings.FF7Exe} ...", NLog.LogLevel.Error);
+                Instance.RaiseProgressChanged($"{ResourceHelper.Get(StringKey.AnExceptionOccurredTryingToStartFf7At)} {launchExecutablePath} ...", NLog.LogLevel.Error);
                 Logger.Error(ex);
                 return false;
             }
@@ -1459,7 +1504,7 @@ namespace AppUI.Classes
         {
             bool ret = false;
 
-            string fileName = Path.GetFileNameWithoutExtension(Sys.Settings.FF7Exe);
+            string fileName = Path.GetFileNameWithoutExtension(GetLaunchExecutablePath());
             ret = Process.GetProcessesByName(fileName).Length > 0;
 
             return ret;
@@ -1467,7 +1512,7 @@ namespace AppUI.Classes
 
         private static bool ForceKillFF7()
         {
-            string fileName = Path.GetFileNameWithoutExtension(Sys.Settings.FF7Exe);
+            string fileName = Path.GetFileNameWithoutExtension(GetLaunchExecutablePath());
 
             try
             {

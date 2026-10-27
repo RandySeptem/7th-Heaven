@@ -254,7 +254,7 @@ var
   IsProductInstalled: Boolean;
 begin
   try
-    IsProductInstalled := Dependency_IsNetCoreInstalled('Microsoft.WindowsDesktop.App 10.0.9')
+    IsProductInstalled := Dependency_IsNetCoreInstalled('Microsoft.WindowsDesktop.App 10.0.14')
   except
     IsProductInstalled := False
   end;
@@ -263,21 +263,59 @@ begin
   if not IsProductInstalled then begin
     Dependency_Add('dotnet100desktop' + Dependency_ArchSuffix + '.exe',
       '/lcid ' + IntToStr(GetUILanguage) + ' /passive /norestart ' + Dependency_SilentParameter('', '/quiet'),
-      '.NET Desktop Runtime 10.0.9' + Dependency_ArchTitle,
-      Dependency_String('https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/10.0.9/windowsdesktop-runtime-10.0.9-win-x86.exe', 'https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/10.0.9/windowsdesktop-runtime-10.0.9-win-x64.exe'),
+      '.NET Desktop Runtime 10.0.14' + Dependency_ArchTitle,
+      Dependency_String('https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/10.0.14/windowsdesktop-runtime-10.0.14-win-x86.exe', 'https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/10.0.14/windowsdesktop-runtime-10.0.14-win-x64.exe'),
       '', False, False);
   end;
+end;
+
+function Dependency_TryReadVersionComponent(var Version: String; var Component: Integer): Boolean;
+var
+  Separator: Integer;
+  ComponentText: String;
+begin
+  Separator := Pos('.', Version);
+  if Separator = 0 then begin
+    ComponentText := Version;
+    Version := '';
+  end else begin
+    ComponentText := Copy(Version, 1, Separator - 1);
+    Delete(Version, 1, Separator);
+  end;
+
+  Component := StrToIntDef(ComponentText, -1);
+  Result := (Component >= 0) and (Component <= 65535);
+end;
+
+function Dependency_TryPackVersion(const Version: String; var PackedVersion: Int64): Boolean;
+var
+  Major, Minor, Revision, Build: Integer;
+  RemainingVersion: String;
+begin
+  RemainingVersion := Version;
+  if CompareText(Copy(RemainingVersion, 1, 1), 'v') = 0 then
+    Delete(RemainingVersion, 1, 1);
+
+  Result := Dependency_TryReadVersionComponent(RemainingVersion, Major) and
+    Dependency_TryReadVersionComponent(RemainingVersion, Minor) and
+    Dependency_TryReadVersionComponent(RemainingVersion, Revision) and
+    Dependency_TryReadVersionComponent(RemainingVersion, Build) and
+    (RemainingVersion = '');
+  if Result then
+    PackedVersion := PackVersionComponents(Major, Minor, Revision, Build);
 end;
 
 procedure Dependency_AddVC2015To2022;
 var
   RegResult: Boolean;
   VcRuntimeVersion: String;
+  InstalledVersion: Int64;
   IsProductInstalled: Boolean;
 begin
   RegResult := RegQueryStringValue(HKEY_LOCAL_MACHINE,'SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\' + Dependency_String('X86', 'X64'), 'Version', VcRuntimeVersion);
   if RegResult then
-    IsProductInstalled := (VcRuntimeVersion = 'v14.51.36247.00')
+    IsProductInstalled := Dependency_TryPackVersion(VcRuntimeVersion, InstalledVersion) and
+      (ComparePackedVersion(InstalledVersion, PackVersionComponents(14, 51, 36247, 0)) >= 0)
   else
     IsProductInstalled := False;
 
@@ -286,7 +324,7 @@ begin
     Dependency_Add('vcredist2022' + Dependency_ArchSuffix + '.exe',
       '/passive /norestart ' + Dependency_SilentParameter('', '/quiet'),
       'Visual C++ 2015-2022 Redistributable' + Dependency_ArchTitle,
-      Dependency_String('https://aka.ms/vs/17/release/vc_redist.x86.exe', 'https://aka.ms/vs/17/release/vc_redist.x64.exe'),
+      Dependency_String('https://aka.ms/vc14/vc_redist.x86.exe', 'https://aka.ms/vc14/vc_redist.x64.exe'),
       '', False, False);
   end;
 end;
